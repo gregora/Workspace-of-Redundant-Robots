@@ -12,7 +12,7 @@ from Library import Cloud, Manifolds
 
 
 def equation(x, t):
-    return np.array([math.cos(x[0]) + math.exp(x[1]) - t[0]])
+    return np.array([math.cos(x[0]) + math.cos(x[1]) - t[0]])
 
 
 
