@@ -8,16 +8,22 @@ import tqdm
 from itertools import combinations
 
 
-from Library import Cloud
+from Library import Cloud, Manifolds
 
 
 def equation(x, t):
-    return np.array([5*math.cos(x[0]) + 3*math.cos(x[1]) - t[0]])
+    return np.array([math.cos(x[0]) + math.exp(x[1]) - t[0]])
 
-xs = [np.linspace(-3.14, 3.14, 100), np.linspace(-3.14, 3.14, 100)]
+
+
+N = 20
+h = 2*6.14/N
+
+
+xs = [np.linspace(-3.14, 3.14, N), np.linspace(-3.14, 3.14, N)]
 x0s = [np.linspace(-3.14, 3.14, 20), np.linspace(-3.14, 3.14, 20)]
 
-t = Cloud.carteisan_product([np.linspace(-2, 2, 100)])
+t = Cloud.carteisan_product([np.linspace(-2, 2, N)])
 
 
 slices = Cloud.GetSlices(xs, x0s, t, equation)
@@ -28,8 +34,10 @@ fig = plt.figure(figsize=(10,10))
 ax = fig.add_subplot(111, projection='3d')
 
 ax.scatter(cloud[:,0], cloud[:,1], cloud[:,2], s=0.1, c='k')
-
 plt.show()
 
 
+ks, trees, manifolds, mappings = Manifolds.ClusterSlices(slices, h)
+
+print(ks)
 
