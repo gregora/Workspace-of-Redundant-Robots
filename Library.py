@@ -58,6 +58,7 @@ class Cloud:
                 for i in x:
                     for j in x0:
                         y, _, ier, _ = fsolve(Cloud.equation_factory, j, args = (i, t0, inx_solve, equation), xtol = 1e-5, factor=0.1, maxfev=15, full_output=True)
+
                         if(ier == 1):
                             x_sol = np.zeros(n)
                             x_sol[inx_fixed] = i
@@ -111,11 +112,11 @@ class Manifolds:
                 mappings.append({})
                 continue
 
-            k, tree, manifolds, mapping = Manifolds.Cluster(slice, h=h)
+            k, tree, man, mapping = Manifolds.Cluster(slice, h=h)
             
             ks.append(k)
             trees.append(tree)
-            manifolds.append(manifolds)
+            manifolds.append(man)
             mappings.append(mapping)
 
         return ks, trees, manifolds, mappings
@@ -188,10 +189,15 @@ class Manifolds:
 
         omega = []
 
+
         for m in manifolds_a:
-            manifold = list(m)
+
+
+            manifold = np.array(list(m))
             omega_m = set([])
-            
+
+            #print(manifold, m)
+
             for p in manifold:
                 neighbours = tree_b.query_radius([p], r = h)[0]
 
@@ -209,4 +215,48 @@ class Manifolds:
             return True
         
         return False
+
+
+
+
+
+
+
+
+class Algorithm:
+    def GetBorders(xs, x0s, t, h, equation):
+
+        m = t.shape[1]
+
+        slices = Cloud.GetSlices(xs, x0s, t, equation)
+        cloud = Cloud.Slices2Pointcloud(slices)
+
+        ks, trees, manifolds, mappings = Manifolds.ClusterSlices(slices, h)
+
+        target_tree = KDTree(t)
+
+        barriers = []
+
+
+        for i, point in enumerate(t):
+            # find 2*N closest points
+            dist, ind = target_tree.query([point], k=2 * m + 1)
+
+            neighbours = ind[0][1:]
+
+            for n in neighbours:
+                if (ks[i] > 0) and (ks[n] > 0):
+
+                    omega = Manifolds.Match(manifolds[i], manifolds[n], trees[i], trees[n], mappings[i], mappings[n], h = h)
+                    if(set([]) in omega):
+                        barriers.append((t[i] + t[n]) / 2)
+
+                elif (ks[i] != 0) or (ks[n] != 0):
+                    barriers.append((t[i] + t[n]) / 2)
+
+
+
+        return barriers
+
+
 
