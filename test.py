@@ -33,7 +33,7 @@ x0s = [np.linspace(-3.14, 3.14, 20), np.linspace(-3.14, 3.14, 20)]
 t = Cloud.carteisan_product([np.linspace(-2, 2, N)])
 
 
-slices = Cloud.GetSlices(xs, x0s, t, equation)
+slices = Cloud.GetSlices(xs, x0s, t, equation, 1)
 
 cloud = Cloud.Slices2Pointcloud(slices)
 

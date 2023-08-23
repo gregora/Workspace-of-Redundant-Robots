@@ -10,19 +10,17 @@ from sklearn.neighbors import KDTree
 
 
 class Cloud:
-    def equation_factory(x, x0, t, find_ids, equation):
+    def equation_factory(x, x0, t, find_ids, fixed_ids, equation):
+        
         n = len(x) + len(x0)
         x_ = np.zeros(n)
 
-        fixed_ids = []
-        for i in range(n):
-            if i not in find_ids:
-                fixed_ids.append(i)
-
         x_[find_ids] = x
         x_[fixed_ids] = x0
+        
+        result = equation(x_, t)
 
-        return equation(x_, t)
+        return result
 
 
     def carteisan_product(arrays):
@@ -34,13 +32,12 @@ class Cloud:
         return arr.reshape(-1, la)
     
 
-    def GetSlices(xs, x0s, t, equation):
+    def GetSlices(xs, x0s, t, equation, equation_size):
 
         n = len(xs)
         m = t.shape[1]
-        r = n - m
 
-        combs = list(combinations(range(n), r))
+        combs = list(combinations(range(n), equation_size))
 
         slices = {}
 
@@ -57,7 +54,7 @@ class Cloud:
 
                 for i in x:
                     for j in x0:
-                        y, _, ier, _ = fsolve(Cloud.equation_factory, j, args = (i, t0, inx_solve, equation), xtol = 1e-5, factor=0.1, maxfev=15, full_output=True)
+                        y, _, ier, _ = fsolve(Cloud.equation_factory, j, args = (i, t0, inx_solve, inx_fixed, equation), xtol = 1e-5, factor=0.1, maxfev=15, full_output=True)
 
                         if(ier == 1):
                             x_sol = np.zeros(n)
@@ -69,7 +66,7 @@ class Cloud:
 
     def Slices2Pointcloud(slices):
 
-        pointcloud = np.zeros((0,3))
+        pointcloud = np.array([])
 
         for key in slices.keys():
 
@@ -82,8 +79,10 @@ class Cloud:
 
             slice = np.concatenate((t, slice), axis=1)
 
-
-            pointcloud = np.concatenate((pointcloud, slice), axis=0)
+            if(pointcloud.shape[0] == 0):
+                pointcloud = slice
+            else:
+                pointcloud = np.concatenate((pointcloud, slice), axis=0)
 
 
         return pointcloud
@@ -101,7 +100,7 @@ class Manifolds:
         mappings = []
 
 
-        for key in slices.keys():
+        for key in tqdm.tqdm(slices.keys()):
             slice = slices[key]
             slice = np.array(slice)
             
@@ -224,11 +223,11 @@ class Manifolds:
 
 
 class Algorithm:
-    def GetBorders(xs, x0s, t, h, equation):
+    def GetBorders(xs, x0s, t, h, equation, equation_size):
 
         m = t.shape[1]
 
-        slices = Cloud.GetSlices(xs, x0s, t, equation)
+        slices = Cloud.GetSlices(xs, x0s, t, equation, equation_size)
         cloud = Cloud.Slices2Pointcloud(slices)
 
         ks, trees, manifolds, mappings = Manifolds.ClusterSlices(slices, h)
@@ -236,9 +235,10 @@ class Algorithm:
         target_tree = KDTree(t)
 
         barriers = []
+        markers = []
 
 
-        for i, point in enumerate(t):
+        for i, point in tqdm.tqdm(enumerate(t)):
             # find 2*N closest points
             dist, ind = target_tree.query([point], k=2 * m + 1)
 
@@ -250,13 +250,15 @@ class Algorithm:
                     omega = Manifolds.Match(manifolds[i], manifolds[n], trees[i], trees[n], mappings[i], mappings[n], h = h)
                     if(set([]) in omega):
                         barriers.append((t[i] + t[n]) / 2)
+                        markers.append(2)
 
                 elif (ks[i] != 0) or (ks[n] != 0):
                     barriers.append((t[i] + t[n]) / 2)
+                    markers.append(1)
 
 
+        return barriers, markers
 
-        return barriers
 
 
 
