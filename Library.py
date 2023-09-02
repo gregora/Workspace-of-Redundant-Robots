@@ -8,6 +8,8 @@ import tqdm
 from itertools import combinations
 from sklearn.neighbors import KDTree
 
+import queue
+
 
 class Cloud:
     def equation_factory(x, x0, t, find_ids, fixed_ids, equation):
@@ -62,7 +64,43 @@ class Cloud:
                             x_sol[inx_solve] = y
                             slices[tuple(t0)].append(x_sol)
         return slices
-    
+
+    def GetSlicesInverse(xs, t, inverse, equation_size):
+        n = len(xs)
+        m = t.shape[1]
+
+        combs = list(combinations(range(n), equation_size))
+
+        slices = {}
+
+        for t0 in tqdm.tqdm(t):
+
+            slices[tuple(t0)] = []
+
+            for c in combs:
+                inx_solve = list(c)
+                inx_fixed = list(set(range(n)) - set(c))
+
+                x_fixed = Cloud.carteisan_product([xs[i] for i in inx_fixed])
+
+                for i in x_fixed:
+                    #n times nan
+                    x = np.ones(n)*np.nan
+                    x[inx_fixed] = i
+
+                    y = inverse(x, t0)
+
+                    #remove nan solutions
+                    y = y[~np.isnan(y).any(axis=1)]
+
+                    for solution in y:
+                        slices[tuple(t0)].append(solution)
+
+        return slices
+
+
+
+            
 
     def Slices2Pointcloud(slices):
 
@@ -151,12 +189,13 @@ class Manifolds:
     def Classify(cloud, tree, point, h = 0.1):
         #classify all the points in the manifold of which point is a part
 
-        queue = [point]
+        q = queue.Queue()
+        q.put(point)
         explored = set([tuple(point)])
 
-        while len(queue) > 0:
+        while q.qsize() > 0:
 
-            point = queue.pop(0)
+            point = q.get()
             cloud = cloud[~np.all(cloud == point, axis=1)]
 
             #find all the points in the neighborhood
@@ -171,7 +210,7 @@ class Manifolds:
 
                 #check that p has not been explored yet and is not in queue
                 if not tuple(p) in explored:
-                    queue.append(p)
+                    q.put(p)
                     explored.add(tuple(p))
 
         return cloud, explored
@@ -228,7 +267,7 @@ class Algorithm:
         m = t.shape[1]
 
         slices = Cloud.GetSlices(xs, x0s, t, equation, equation_size)
-        cloud = Cloud.Slices2Pointcloud(slices)
+        #cloud = Cloud.Slices2Pointcloud(slices)
 
         ks, trees, manifolds, mappings = Manifolds.ClusterSlices(slices, h)
 
