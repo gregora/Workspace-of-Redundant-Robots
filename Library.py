@@ -11,6 +11,22 @@ from sklearn.neighbors import KDTree
 import queue
 
 
+def query_box(points, center, dimensions):
+    """
+    Find all the points in a box centered at center and with n dimensions
+    """
+
+    #find the points in the box
+    inx = np.ones(points.shape[0], dtype=bool)
+
+    for i in range(points.shape[1]):
+        inx = inx & (points[:, i] >= center[i] - dimensions[i]/2)
+        inx = inx & (points[:, i] <= center[i] + dimensions[i]/2)
+
+    return inx
+
+
+
 class Cloud:
     def equation_factory(x, x0, t, find_ids, fixed_ids, equation):
         
@@ -220,7 +236,7 @@ class Manifolds:
 
 
 
-    def Match(manifolds_a, manifolds_b, tree_a, tree_b, mapping_a, mapping_b, h = 0.1):
+    def Match(t1, t2, manifolds_a, manifolds_b, tree_a, tree_b, mapping_a, mapping_b, h = 0.1, Jx = None, Jt = None):
         """
         Match two manifolds using the tree structure
         """
@@ -228,22 +244,46 @@ class Manifolds:
         omega = []
 
 
-        for m in manifolds_a:
+        if (Jx == None) or (Jt == None):
+
+            for m in manifolds_a:
+                manifold = np.array(list(m))
+                omega_m = set([])
+
+                for p in manifold:
+                    neighbours = tree_b.query_radius([p], r = h)[0]
+
+                    for n in neighbours:
+                        manifold_b = mapping_b[tuple(tree_b.data[n])]
+                        omega_m.add(manifold_b)
+
+                omega.append(omega_m)
+        else:
+            for m in manifolds_a:
+                manifold = np.array(list(m))
+                omega_m = set([])
+
+                for p in manifold:
+
+                    J_p = Jx(p, t1)
+                    J_p_inv = np.linalg.pinv(J_p)
+
+                    J_t = Jt(p, t1)
+
+                    box = J_p_inv @ J_t @ (t1 - t2)
+
+                    print(box)
+
+                    neighbours = query_box(tree_b.data, p, 2*box)
+                    neighbours = np.where(neighbours)[0]
+
+                    for n in neighbours:
+                        manifold_b = mapping_b[tuple(tree_b.data[n])]
+                        omega_m.add(manifold_b)
+
+                omega.append(omega_m)
 
 
-            manifold = np.array(list(m))
-            omega_m = set([])
-
-            #print(manifold, m)
-
-            for p in manifold:
-                neighbours = tree_b.query_radius([p], r = h)[0]
-
-                for n in neighbours:
-                    manifold_b = mapping_b[tuple(tree_b.data[n])]
-                    omega_m.add(manifold_b)
-
-            omega.append(omega_m)
         return omega
 
     def DetectManifoldChange(omega1, omega2):
@@ -262,7 +302,7 @@ class Manifolds:
 
 
 class Algorithm:
-    def GetBorders(xs, x0s, t, h, equation, equation_size):
+    def GetBorders(xs, x0s, t, h, equation, equation_size, Jx = None, Jt = None):
 
         m = t.shape[1]
 
@@ -286,7 +326,7 @@ class Algorithm:
             for n in neighbours:
                 if (ks[i] > 0) and (ks[n] > 0):
 
-                    omega = Manifolds.Match(manifolds[i], manifolds[n], trees[i], trees[n], mappings[i], mappings[n], h = h)
+                    omega = Manifolds.Match(point, t[n], manifolds[i], manifolds[n], trees[i], trees[n], mappings[i], mappings[n], h = h)
                     if(set([]) in omega):
                         barriers.append((t[i] + t[n]) / 2)
                         markers.append(2)
@@ -299,5 +339,40 @@ class Algorithm:
         return barriers, markers
 
 
+    def GetBordersInverse(xs, t, h, equation, equation_size, Jx = None, Jt = None):
+
+        m = t.shape[1]
+
+        slices = Cloud.GetSlicesInverse(xs, t, equation, equation_size)
+        #cloud = Cloud.Slices2Pointcloud(slices)
+
+        ks, trees, manifolds, mappings = Manifolds.ClusterSlices(slices, h[0])
+
+        target_tree = KDTree(t)
+
+        barriers = []
+        markers = []
+
+
+        for i, point in tqdm.tqdm(enumerate(t)):
+            # find 2*N closest points
+            dist, ind = target_tree.query([point], k=2 * m + 1)
+
+            neighbours = ind[0][1:]
+
+            for n in neighbours:
+                if (ks[i] > 0) and (ks[n] > 0):
+
+                    omega = Manifolds.Match(point, t[n], manifolds[i], manifolds[n], trees[i], trees[n], mappings[i], mappings[n], h, Jx, Jt)
+                    if(set([]) in omega):
+                        barriers.append((t[i] + t[n]) / 2)
+                        markers.append(2)
+
+                elif (ks[i] != 0) or (ks[n] != 0):
+                    barriers.append((t[i] + t[n]) / 2)
+                    markers.append(1)
+
+
+        return barriers, markers
 
 

@@ -41,3 +41,5 @@ ax = fig.add_subplot(111, projection='3d')
 
 ax.scatter(cloud[:,0], cloud[:,1], cloud[:,2], s=0.1, c='k')
 plt.show()
+
+
