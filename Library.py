@@ -16,6 +16,8 @@ def query_box(points, center, dimensions):
     Find all the points in a box centered at center and with n dimensions
     """
 
+    dimensions = dimensions + 1e-5
+
     #find the points in the box
     inx = np.ones(points.shape[0], dtype=bool)
 
@@ -146,7 +148,7 @@ class Cloud:
 
 class Manifolds:
 
-    def ClusterSlices(slices, h = 0.1):
+    def ClusterSlices(slices, h = 0.1, oc = 1):
 
         ks = []
         trees = []
@@ -165,7 +167,7 @@ class Manifolds:
                 mappings.append({})
                 continue
 
-            k, tree, man, mapping = Manifolds.Cluster(slice, h=h)
+            k, tree, man, mapping = Manifolds.Cluster(slice, h, oc)
             
             ks.append(k)
             trees.append(tree)
@@ -175,7 +177,7 @@ class Manifolds:
         return ks, trees, manifolds, mappings
 
 
-    def Cluster(cloud, h = 0.1):
+    def Cluster(cloud, h = 0.1, oc = 1):
 
         cloud = cloud.copy()
         cloud = cloud[~np.isnan(cloud).any(axis=1)]
@@ -192,7 +194,8 @@ class Manifolds:
         mapping = {}
 
         while len(cloud) > 0:
-            cloud, manifold = Manifolds.Classify(cloud, tree, cloud[0], h)
+            cloud, manifold = Manifolds.Classify(cloud, tree, cloud[0], h, oc)
+            
             manifolds.append(manifold)
 
             for point in manifold:
@@ -202,7 +205,7 @@ class Manifolds:
 
         return k, tree, manifolds, mapping
 
-    def Classify(cloud, tree, point, h = 0.1):
+    def Classify(cloud, tree, point, h = 0.1, oc = 1):
         #classify all the points in the manifold of which point is a part
 
         q = queue.Queue()
@@ -215,7 +218,7 @@ class Manifolds:
             cloud = cloud[~np.all(cloud == point, axis=1)]
 
             #find all the points in the neighborhood
-            tree_res = tree.query_radius(point.reshape(1, -1), r = h, sort_results = True, return_distance = True) 
+            tree_res = tree.query_radius(point.reshape(1, -1), r = h*oc, sort_results = True, return_distance = True) 
 
             indices = tree_res[0][0]
             indices = indices.astype(int)
@@ -236,7 +239,7 @@ class Manifolds:
 
 
 
-    def Match(t1, t2, manifolds_a, manifolds_b, tree_a, tree_b, mapping_a, mapping_b, h = 0.1, Jx = None, Jt = None):
+    def Match(t1, t2, manifolds_a, manifolds_b, tree_a, tree_b, mapping_a, mapping_b, h = 0.1, Jx = None, Jt = None, om = 1):
         """
         Match two manifolds using the tree structure
         """
@@ -272,10 +275,16 @@ class Manifolds:
 
                     box = J_p_inv @ J_t @ (t1 - t2)
 
-                    print(box)
+                    #absolute value for box
+                    box = np.abs(box)
 
-                    neighbours = query_box(tree_b.data, p, 2*box)
+                    neighbours = query_box(tree_b.data, p, om*box)
                     neighbours = np.where(neighbours)[0]
+
+                    if(len(neighbours) == 0):
+                        #print(p, box)
+                        #print(neighbours)
+                        pass
 
                     for n in neighbours:
                         manifold_b = mapping_b[tuple(tree_b.data[n])]
@@ -309,49 +318,13 @@ class Algorithm:
         slices = Cloud.GetSlices(xs, x0s, t, equation, equation_size)
         #cloud = Cloud.Slices2Pointcloud(slices)
 
-        ks, trees, manifolds, mappings = Manifolds.ClusterSlices(slices, h)
-
-        target_tree = KDTree(t)
-
-        barriers = []
-        markers = []
-
-
-        for i, point in tqdm.tqdm(enumerate(t)):
-            # find 2*N closest points
-            dist, ind = target_tree.query([point], k=2 * m + 1)
-
-            neighbours = ind[0][1:]
-
-            for n in neighbours:
-                if (ks[i] > 0) and (ks[n] > 0):
-
-                    omega = Manifolds.Match(point, t[n], manifolds[i], manifolds[n], trees[i], trees[n], mappings[i], mappings[n], h = h)
-                    if(set([]) in omega):
-                        barriers.append((t[i] + t[n]) / 2)
-                        markers.append(2)
-
-                elif (ks[i] != 0) or (ks[n] != 0):
-                    barriers.append((t[i] + t[n]) / 2)
-                    markers.append(1)
-
-
-        return barriers, markers
-
-
-    def GetBordersInverse(xs, t, h, equation, equation_size, Jx = None, Jt = None):
-
-        m = t.shape[1]
-
-        slices = Cloud.GetSlicesInverse(xs, t, equation, equation_size)
-        #cloud = Cloud.Slices2Pointcloud(slices)
-
         ks, trees, manifolds, mappings = Manifolds.ClusterSlices(slices, h[0])
 
         target_tree = KDTree(t)
 
         barriers = []
         markers = []
+        target_indexes = []
 
 
         for i, point in tqdm.tqdm(enumerate(t)):
@@ -367,10 +340,52 @@ class Algorithm:
                     if(set([]) in omega):
                         barriers.append((t[i] + t[n]) / 2)
                         markers.append(2)
+                        target_indexes.append((n, i))
 
                 elif (ks[i] != 0) or (ks[n] != 0):
                     barriers.append((t[i] + t[n]) / 2)
                     markers.append(1)
+                    target_indexes.append((n, i))
+
+
+        return barriers, markers, target_indexes
+
+
+    def GetBordersInverse(xs, t, h, equation, equation_size, Jx = None, Jt = None, oc = 1, om = 1):
+
+        m = t.shape[1]
+
+        slices = Cloud.GetSlicesInverse(xs, t, equation, equation_size)
+        #cloud = Cloud.Slices2Pointcloud(slices)
+
+        ks, trees, manifolds, mappings = Manifolds.ClusterSlices(slices, h[0], oc)
+
+        target_tree = KDTree(t)
+
+        barriers = []
+        markers = []
+        target_indexes = []
+
+
+        for i, point in tqdm.tqdm(enumerate(t)):
+            # find 2*N closest points
+            dist, ind = target_tree.query([point], k=2 * m + 1)
+
+            neighbours = ind[0][1:]
+
+            for n in neighbours:
+                if (ks[i] > 0) and (ks[n] > 0):
+
+                    omega = Manifolds.Match(point, t[n], manifolds[i], manifolds[n], trees[i], trees[n], mappings[i], mappings[n], h, Jx, Jt, om)
+                    if(set([]) in omega):
+                        barriers.append((t[i] + t[n]) / 2)
+                        markers.append(2)
+                        target_indexes.append((n, i))
+
+                elif (ks[i] != 0) or (ks[n] != 0):
+                    barriers.append((t[i] + t[n]) / 2)
+                    markers.append(1)
+                    target_indexes.append((n, i))
 
 
         return barriers, markers
