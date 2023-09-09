@@ -196,7 +196,8 @@ class Manifolds:
         while len(cloud) > 0:
             cloud, manifold = Manifolds.Classify(cloud, tree, cloud[0], h, oc)
             
-            manifolds.append(manifold)
+            if(len(manifold) > 1):
+                manifolds.append(manifold)
 
             for point in manifold:
                 mapping[point] = k
@@ -218,8 +219,19 @@ class Manifolds:
             cloud = cloud[~np.all(cloud == point, axis=1)]
 
             #find all the points in the neighborhood
-            tree_res = tree.query_radius(point.reshape(1, -1), r = h*oc, sort_results = True, return_distance = True) 
+            #tree_res = tree.query_radius(point.reshape(1, -1), r = h*oc, sort_results = True, return_distance = True) 
+            point_idx = query_box(np.array(tree.data), point, h*oc)
 
+            points = np.array(tree.data)[point_idx]
+
+            for p in points:
+                #check that p has not been explored yet and is not in queue
+                if not tuple(p) in explored:
+                    q.put(p)
+                    explored.add(tuple(p))
+
+
+            """
             indices = tree_res[0][0]
             indices = indices.astype(int)
             indices = indices[1:]
@@ -231,7 +243,8 @@ class Manifolds:
                 if not tuple(p) in explored:
                     q.put(p)
                     explored.add(tuple(p))
-
+            """
+                    
         return cloud, explored
 
 
@@ -244,7 +257,7 @@ class Manifolds:
         Match two manifolds using the tree structure
         """
 
-        omega = []
+        omega = set([])
 
 
         if (Jx == None) or (Jt == None):
@@ -260,7 +273,7 @@ class Manifolds:
                         manifold_b = mapping_b[tuple(tree_b.data[n])]
                         omega_m.add(manifold_b)
 
-                omega.append(omega_m)
+                omega.add(frozenset(omega_m))
         else:
             for m in manifolds_a:
                 manifold = np.array(list(m))
@@ -290,7 +303,7 @@ class Manifolds:
                         manifold_b = mapping_b[tuple(tree_b.data[n])]
                         omega_m.add(manifold_b)
 
-                omega.append(omega_m)
+                omega.add(frozenset(omega_m))
 
 
         return omega
@@ -358,7 +371,7 @@ class Algorithm:
         slices = Cloud.GetSlicesInverse(xs, t, equation, equation_size)
         #cloud = Cloud.Slices2Pointcloud(slices)
 
-        ks, trees, manifolds, mappings = Manifolds.ClusterSlices(slices, h[0], oc)
+        ks, trees, manifolds, mappings = Manifolds.ClusterSlices(slices, h, oc)
 
         target_tree = KDTree(t)
 
